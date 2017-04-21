@@ -18,21 +18,27 @@
 /*  pas is Copyright 2017 by Perry Kivolowitz.
 */
 
+#include <iostream>
+#include <string>
+#include <ctime>
+#include <sstream>
+#include <iomanip>
+
 #include <arpa/inet.h>
 #include <getopt.h>
-#include <iostream>
 #include <netinet/in.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <string>
 #include <sys/socket.h>
-#include <thread>
 #include <unistd.h>
 #include <vector>
 
+#include "commands.pb.h"
+
 using namespace std;
+using namespace pas;
 
 #define WHERE	__FUNCTION__ << " " << __LINE__
 
@@ -60,20 +66,188 @@ void GetOptions(int argc, char* argv[])
 	}
 }
 
+bool SendPB(string & s, int server_socket)
+{
+	size_t length = s.size();
+	size_t ll = length;
+
+	length = htonl(length);
+	size_t bytes_sent;
+
+	if ((bytes_sent  = send(server_socket, (const void *) &length, sizeof(length), 0)) != sizeof(length)) {
+		cout << WHERE << " bad bytes_sent for length: " << strerror(errno) << endl;
+		return false;
+	}
+
+	;
+	if ((bytes_sent = send(server_socket, (const void *) s.data(), ll, 0)) != ll) {
+		cout << WHERE << " bad bytes_sent for message: " << strerror(errno) << endl;
+		return false;
+	}
+	return true;
+}
+
+bool OneInteger_OneIntegerReply(string & in, int socket)
+{
+	bool rv = false;
+	OneInteger o;
+	OneInteger outi;
+	OneString outs;
+	string output;
+
+	if (o.ParseFromString(in)) {
+		switch (o.type())
+		{
+			case ARTIST_COUNT:
+			case TRACK_COUNT:
+				outi.set_type(ONE_INT);
+				outi.set_value(1);
+				if (outi.SerializeToString(&output)) {
+					SendPB(output, socket);
+					cout << WHERE << " sending 1 as count." << endl;
+					rv = true;
+				}
+				else {
+					cout << WHERE << " failed to serialize response." << endl;
+				}
+				break;
+
+			case WHO_DEVICE:
+			case WHAT_DEVICE:
+			case WHEN_DEVICE:
+				outs.set_type(ONE_STRING);
+				if (o.type() == WHO_DEVICE)
+					outs.set_value("The Who");
+				else if (o.type() == WHAT_DEVICE)
+					outs.set_value("The What");
+				else {
+					time_t t = time(nullptr);
+					tm * tx = localtime(&t);
+					stringstream ss;
+					ss << setfill('0') << setw(2) << tx->tm_hour << ":";
+					ss << setw(2) << tx->tm_min << ":";
+					ss << setw(2) << tx->tm_sec;
+					outs.set_value(ss.str());
+				}
+				if (outs.SerializeToString(&output)) {
+					SendPB(output, socket);
+					cout << WHERE << " sending " << outs.value() << endl;
+					rv = true;
+				}
+				else {
+					cout << WHERE << " failed to serialize response." << endl;
+				}
+				break;
+
+			default:
+				cout << WHERE << " should not get here ";
+				break;
+		}
+		rv = true;		
+	}
+	return rv;
+
+}
+
+bool OneInteger_NoReply(string & in)
+{
+	bool rv = false;
+	OneInteger o;
+	if (o.ParseFromString(in)) {
+		switch (o.type())
+		{
+			case CLEAR_DEVICE:
+				cout << "Clearing device: ";
+				break;
+
+			case NEXT_DEVICE:
+				cout << "Next track on device: ";
+				break;
+
+			case STOP_DEVICE:
+				cout << "Stopping device: ";
+				break;
+
+			case RESUME_DEVICE:
+				cout << "Resuming device: ";
+				break;
+
+			case PAUSE_DEVICE:
+				cout << "Pausing device: ";
+				break;
+
+			default:
+				cout << WHERE << " should not get here ";
+				break;
+		}
+		cout << o.value() << endl;
+		rv = true;		
+	}
+	return rv;
+}
+
+bool CommandProcessor(int socket, string & in)
+{
+	bool rv = false;
+	GenericPB g;
+	if (g.ParseFromString(in)) {
+		cout << WHERE << " received type: " << g.type() << endl;
+		switch (g.type())
+		{
+			// The OneIntegers that do not send a reply.
+			case CLEAR_DEVICE:
+			case NEXT_DEVICE:
+			case STOP_DEVICE:
+			case RESUME_DEVICE:
+			case PAUSE_DEVICE:
+				rv = OneInteger_NoReply(in);
+				break;
+
+			case TRACK_COUNT:
+			case ARTIST_COUNT:
+			case WHO_DEVICE:
+			case WHEN_DEVICE:
+			case WHAT_DEVICE:
+				rv = OneInteger_OneIntegerReply(in, socket);
+				break;
+
+			default:
+				cout << WHERE << " message type not handled yet." << endl;
+		}
+
+	}
+	else {
+		cout << WHERE << " failed to parse" << endl;
+	}
+	return rv;
+}
+
 void HandleConnection(int socket)
 {
-	unsigned int length;
-	unsigned int bytes_read;
+	size_t length;
+	size_t bytes_read;
 
 	while (keep_going) {
 		if ((bytes_read = recv(socket, (void*)&length, sizeof(length), 0)) == sizeof(length)) {
 			length = ntohl(length);
+			cout << WHERE << " length of next message: " << length << endl;
 			string incoming;
 
 			incoming.resize(length);
 			if ((bytes_read = recv(socket, (void*)&incoming[0], length, 0)) == length) {
-				cout << WHERE << endl;
+				cout << WHERE << " received message of length: " << bytes_read << endl;
+				if (!CommandProcessor(socket, incoming)) {
+					break;
+				}
 			}
+			else {
+				cout << WHERE << " failed to read message correctly: " << strerror(errno) << endl;
+				break;
+			}
+		}
+		else {
+			cout << WHERE << " failed to read length correctly: " << strerror(errno) << endl;
+			break;
 		}
 	}
 }
@@ -118,7 +292,7 @@ void Serve()
 	int connection_counter = 0;
 
 	while ((incoming_socket = accept(listening_socket, (sockaddr*)&client_info, (socklen_t*)&c)) > 0) {
-		
+
 		cout << "Connection: " << connection_counter << " established." << endl;
 		HandleConnection(incoming_socket);
 		cout << "Connection: " << connection_counter << " taken down." << endl;
