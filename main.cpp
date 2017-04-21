@@ -34,6 +34,8 @@
 
 using namespace std;
 
+#define WHERE	__FUNCTION__ << " " << __LINE__
+
 int listening_socket = -1;
 bool keep_going = true;
 
@@ -70,7 +72,7 @@ void HandleConnection(int socket)
 
 			incoming.resize(length);
 			if ((bytes_read = recv(socket, (void*)&incoming[0], length, 0)) == length) {
-				cout << __FUNCTION__ << " " << __LINE__ << endl;
+				cout << WHERE << endl;
 			}
 		}
 	}
@@ -87,7 +89,7 @@ void Serve()
 
 	int optval = 1;
 	if (setsockopt(listening_socket, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof optval) < 0) {
-		cout << __FUNCTION__ << " " << __LINE__ << " " << strerror(errno) << endl;
+		cout << WHERE << " " << strerror(errno) << endl;
 		return;
 	}
 
@@ -99,13 +101,13 @@ void Serve()
 	listening_sockaddr.sin_addr.s_addr = INADDR_ANY;
 
 	if (bind(listening_socket, (sockaddr*)&listening_sockaddr, sizeof(sockaddr_in)) < 0) {
-		cout << __FUNCTION__ << " " << __LINE__ << " " << strerror(errno) << endl;
+		cout << WHERE << " " << strerror(errno) << endl;
 		return;
 	}
 
 	// Configure for handling at most one (1) client.
 	if (listen(listening_socket, 1) != 0) {
-		cout << __FUNCTION__ << " " << __LINE__ << " " << strerror(errno) << endl;
+		cout << WHERE << " " << strerror(errno) << endl;
 		return;
 	}
 
@@ -116,6 +118,7 @@ void Serve()
 	int connection_counter = 0;
 
 	while ((incoming_socket = accept(listening_socket, (sockaddr*)&client_info, (socklen_t*)&c)) > 0) {
+		
 		cout << "Connection: " << connection_counter << " established." << endl;
 		HandleConnection(incoming_socket);
 		cout << "Connection: " << connection_counter << " taken down." << endl;
