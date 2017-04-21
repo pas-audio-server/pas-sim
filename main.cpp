@@ -102,9 +102,10 @@ bool OneInteger_OneIntegerReply(string & in, int socket)
 				outi.set_type(ONE_INT);
 				outi.set_value(1);
 				if (outi.SerializeToString(&output)) {
-					SendPB(output, socket);
-					cout << WHERE << " sending 1 as count." << endl;
-					rv = true;
+					if (SendPB(output, socket)) {
+						cout << WHERE << " sent 1 as count." << endl;
+						rv = true;
+					}
 				}
 				else {
 					cout << WHERE << " failed to serialize response." << endl;
@@ -129,9 +130,10 @@ bool OneInteger_OneIntegerReply(string & in, int socket)
 					outs.set_value(ss.str());
 				}
 				if (outs.SerializeToString(&output)) {
-					SendPB(output, socket);
-					cout << WHERE << " sending " << outs.value() << endl;
-					rv = true;
+					if (SendPB(output, socket)) {
+						cout << WHERE << " sent " << outs.value() << endl;
+						rv = true;
+					}
 				}
 				else {
 					cout << WHERE << " failed to serialize response." << endl;
