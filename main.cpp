@@ -79,7 +79,6 @@ bool SendPB(string & s, int server_socket)
 		return false;
 	}
 
-	;
 	if ((bytes_sent = send(server_socket, (const void *) s.data(), ll, 0)) != ll) {
 		cout << WHERE << " bad bytes_sent for message: " << strerror(errno) << endl;
 		return false;
