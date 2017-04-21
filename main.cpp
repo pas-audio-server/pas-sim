@@ -40,15 +40,36 @@
 using namespace std;
 using namespace pas;
 
-#define WHERE	__FUNCTION__ << " " << __LINE__
-
+#define WHERE		__FUNCTION__ << " " << __LINE__ << " "
+#define MAX_DACS 	1
 int listening_socket = -1;
 bool keep_going = true;
 
+string unknown_message;
+string invalid_device;
+string internal_error;
+
 int port = 5077;
+
+string TimeCode()
+{
+	time_t t = time(nullptr);
+	tm * tx = localtime(&t);
+	stringstream ss;
+	ss << setfill('0') << setw(2) << tx->tm_hour << ":";
+	ss << setw(2) << tx->tm_min << ":";
+	ss << setw(2) << tx->tm_sec;
+	return ss.str();
+}
+
+bool CheckDevice(int device)
+{
+	return device >= 0 && device < MAX_DACS;
+}
 
 void SIGINTHandler(int)
 {
+	cout << endl << WHERE << "signal caught - setting keep_going to false" << endl;
 	keep_going = false;
 }
 
@@ -75,12 +96,12 @@ bool SendPB(string & s, int server_socket)
 	size_t bytes_sent;
 
 	if ((bytes_sent  = send(server_socket, (const void *) &length, sizeof(length), 0)) != sizeof(length)) {
-		cout << WHERE << " bad bytes_sent for length: " << strerror(errno) << endl;
+		cout << WHERE << "bad bytes_sent for length: " << strerror(errno) << endl;
 		return false;
 	}
 
 	if ((bytes_sent = send(server_socket, (const void *) s.data(), ll, 0)) != ll) {
-		cout << WHERE << " bad bytes_sent for message: " << strerror(errno) << endl;
+		cout << WHERE << "bad bytes_sent for message: " << strerror(errno) << endl;
 		return false;
 	}
 	return true;
@@ -103,45 +124,46 @@ bool OneInteger_OneIntegerReply(string & in, int socket)
 				outi.set_value(1);
 				if (outi.SerializeToString(&output)) {
 					if (SendPB(output, socket)) {
-						cout << WHERE << " sent 1 as count." << endl;
+						cout << WHERE << "sent 1 as count." << endl;
 						rv = true;
 					}
 				}
 				else {
-					cout << WHERE << " failed to serialize response." << endl;
+					cout << WHERE << "failed to serialize response." << endl;
 				}
 				break;
 
 			case WHO_DEVICE:
 			case WHAT_DEVICE:
 			case WHEN_DEVICE:
+				if (!CheckDevice(o.value())) {
+					if (SendPB(invalid_device, socket)) {
+						cout << WHERE << "sent invalid device: " << o.value() << endl;
+						rv = true;
+						break;
+					}	
+				}
 				outs.set_type(ONE_STRING);
 				if (o.type() == WHO_DEVICE)
 					outs.set_value("The Who");
 				else if (o.type() == WHAT_DEVICE)
 					outs.set_value("The What");
 				else {
-					time_t t = time(nullptr);
-					tm * tx = localtime(&t);
-					stringstream ss;
-					ss << setfill('0') << setw(2) << tx->tm_hour << ":";
-					ss << setw(2) << tx->tm_min << ":";
-					ss << setw(2) << tx->tm_sec;
-					outs.set_value(ss.str());
+					outs.set_value(TimeCode());
 				}
 				if (outs.SerializeToString(&output)) {
 					if (SendPB(output, socket)) {
-						cout << WHERE << " sent " << outs.value() << endl;
+						cout << WHERE << "relating to device: " << o.value() << " sent " << outs.value() << endl;
 						rv = true;
 					}
 				}
 				else {
-					cout << WHERE << " failed to serialize response." << endl;
+					cout << WHERE << "failed to serialize response." << endl;
 				}
 				break;
 
 			default:
-				cout << WHERE << " should not get here ";
+				cout << WHERE << "should not get here ";
 				break;
 		}
 		rv = true;		
@@ -187,12 +209,38 @@ bool OneInteger_NoReply(string & in)
 	return rv;
 }
 
+bool TwoInteger_NoReply(string & in)
+{
+	bool rv = false;
+	TwoIntegers o;
+	if (o.ParseFromString(in)) {
+		switch (o.type())
+		{
+			case PLAY_TRACK_DEVICE:
+				if (!CheckDevice(o.value_a())) {
+					cout << WHERE << "received play on invalid device: " << o.value_a() << " but no reply is being sent." << endl;
+				}
+				else {
+					cout << WHERE << "play track message received. Device: " << o.value_a() << " Track: " << o.value_b() << endl;
+				}
+				rv = true;
+				break;
+
+			default:
+				cout << WHERE << "should not get here." << endl;
+				break;
+		}
+		rv = true;
+	}
+	return rv;
+}
+
 bool CommandProcessor(int socket, string & in)
 {
 	bool rv = false;
 	GenericPB g;
 	if (g.ParseFromString(in)) {
-		cout << WHERE << " received type: " << g.type() << endl;
+		cout << WHERE << "received type: " << g.type() << endl;
 		switch (g.type())
 		{
 			// The OneIntegers that do not send a reply.
@@ -212,13 +260,21 @@ bool CommandProcessor(int socket, string & in)
 				rv = OneInteger_OneIntegerReply(in, socket);
 				break;
 
+			case PLAY_TRACK_DEVICE:
+				rv = TwoInteger_NoReply(in);
+				break;
+
 			default:
-				cout << WHERE << " message type not handled yet." << endl;
+				if (SendPB(unknown_message, socket)) {
+					cout << WHERE << "sent unknown message." << endl;
+					rv = true;
+				}
+				break;
 		}
 
 	}
 	else {
-		cout << WHERE << " failed to parse" << endl;
+		cout << WHERE << "failed to parse incoming message." << endl;
 	}
 	return rv;
 }
@@ -231,23 +287,23 @@ void HandleConnection(int socket)
 	while (keep_going) {
 		if ((bytes_read = recv(socket, (void*)&length, sizeof(length), 0)) == sizeof(length)) {
 			length = ntohl(length);
-			cout << WHERE << " length of next message: " << length << endl;
+			cout << WHERE << "length of next message: " << length << endl;
 			string incoming;
 
 			incoming.resize(length);
 			if ((bytes_read = recv(socket, (void*)&incoming[0], length, 0)) == length) {
-				cout << WHERE << " received message of length: " << bytes_read << endl;
+				cout << WHERE << "received message of length: " << bytes_read << endl;
 				if (!CommandProcessor(socket, incoming)) {
 					break;
 				}
 			}
 			else {
-				cout << WHERE << " failed to read message correctly: " << strerror(errno) << endl;
+				cout << WHERE << "failed to read message correctly: " << strerror(errno) << endl;
 				break;
 			}
 		}
 		else {
-			cout << WHERE << " failed to read length correctly: " << strerror(errno) << endl;
+			cout << WHERE << "failed to read length correctly: " << strerror(errno) << endl;
 			break;
 		}
 	}
@@ -258,13 +314,13 @@ void Serve()
 	int incoming_socket;
 
 	if ((listening_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-		cout << __FUNCTION__ << " " << __LINE__ << " " << strerror(errno) << endl;
+		cout << WHERE << strerror(errno) << endl;
 		return;
 	}
 
 	int optval = 1;
 	if (setsockopt(listening_socket, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof optval) < 0) {
-		cout << WHERE << " " << strerror(errno) << endl;
+		cout << WHERE << strerror(errno) << endl;
 		return;
 	}
 
@@ -292,11 +348,12 @@ void Serve()
 
 	int connection_counter = 0;
 
+	cout << WHERE << "monitoring network." << endl;
 	while ((incoming_socket = accept(listening_socket, (sockaddr*)&client_info, (socklen_t*)&c)) > 0) {
 
-		cout << "Connection: " << connection_counter << " established." << endl;
+		cout << WHERE << "Connection: " << connection_counter << " established." << endl;
 		HandleConnection(incoming_socket);
-		cout << "Connection: " << connection_counter << " taken down." << endl;
+		cout << WHERE << "Connection: " << connection_counter << " taken down." << endl;
 
 		connection_counter++;
 
@@ -305,10 +362,38 @@ void Serve()
 	}
 }
 
+bool InitializeErrorMessages()
+{
+	bool rv = true;
+
+	OneInteger o;
+	o.set_type(ERROR_MESSAGE);
+
+
+	o.set_value(UNKNOWN_MESSAGE);
+	if (!o.SerializeToString(&unknown_message))
+		rv = false;
+
+	o.set_value(INVALID_DEVICE);
+	if (!o.SerializeToString(&invalid_device))
+		rv = false;
+
+	o.set_value(INTERNAL_ERROR);
+	if (!o.SerializeToString(&internal_error))
+		rv = false;
+	
+	return rv;
+}
+
 int main(int argc, char* argv[])
 {
 	signal(SIGINT, SIGINTHandler);
 	siginterrupt(SIGINT, 1);
+
+	if (!InitializeErrorMessages()) {
+		cout << WHERE << "failed to initialize stock error messages." << endl;
+		return 1;
+	}
 
 	GetOptions(argc, argv);
 	Serve();
