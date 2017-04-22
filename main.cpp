@@ -82,6 +82,7 @@ void GetOptions(int argc, char* argv[])
 
 		case 'p':
 			port = atoi(optarg);
+			cout << WHERE << "port set to: " << optarg << endl;
 			break;
 		}
 	}
