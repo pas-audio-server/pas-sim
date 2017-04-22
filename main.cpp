@@ -44,6 +44,7 @@ using namespace pas;
 #define MAX_DACS 	1
 int listening_socket = -1;
 bool keep_going = true;
+bool network_diagnostics = false;
 
 string unknown_message;
 string invalid_device;
@@ -77,8 +78,13 @@ void GetOptions(int argc, char* argv[])
 {
 	int opt;
 
-	while ((opt = getopt(argc, argv, "p:")) != -1) {
+	while ((opt = getopt(argc, argv, "dp:")) != -1) {
 		switch (opt) {
+
+		case 'd':
+			cout << "netword diagnostics turned on" << endl;
+			network_diagnostics = true;
+			break;
 
 		case 'p':
 			port = atoi(optarg);
@@ -353,22 +359,47 @@ void HandleConnection(int socket)
 {
 	size_t length;
 	size_t bytes_read;
+	size_t ll;
 
 	while (keep_going) {
 		if ((bytes_read = recv(socket, (void*)&length, sizeof(length), 0)) == sizeof(length)) {
+			ll = length;
 			length = ntohl(length);
-			cout << WHERE << "length of next message: " << length << endl;
-			string incoming;
+			cout << WHERE << "Length: " << length << " encoded as: " << hex << ll << dec << endl;
 
+   			string incoming;
 			incoming.resize(length);
+			cout << WHERE << "size of incoming: " << incoming.size() << endl;
+
 			if ((bytes_read = recv(socket, (void*)&incoming[0], length, 0)) == length) {
 				cout << WHERE << "received message of length: " << bytes_read << endl;
+
+				if (network_diagnostics && bytes_read < 64) {
+					for (size_t i = 0; i < 64 && i < length; i++) {
+						cout << setfill('0') << hex << "0x" << setw(2) << hex << (int)(((int) incoming.at(i)) & 0xFF) << " ";
+						if (i % 32 == 0 && i > 0)
+							cout << endl;
+					}
+					if (length % 32 != 0)
+						cout << endl;
+					cout << dec << setfill(' ');
+				}
 				if (!CommandProcessor(socket, incoming)) {
 					break;
 				}
 			}
 			else {
-				cout << WHERE << "failed to read message correctly: " << strerror(errno) << endl;
+				cout << WHERE << "failed to read message correctly: " << bytes_read << " " << strerror(errno) << endl;
+				if (network_diagnostics && bytes_read < 64) {
+					for (size_t i = 0; i < 64 && i < bytes_read; i++) {
+						cout << setfill('0') << hex << "0x" << setw(2) << hex << (int)(((int) incoming.at(i)) & 0xFF) << " ";
+						if (i % 32 == 0 && i > 0)
+							cout << endl;
+					}
+					if (bytes_read % 32 != 0)
+						cout << endl;
+					cout << dec << setfill(' ');
+				}
 				break;
 			}
 		}
