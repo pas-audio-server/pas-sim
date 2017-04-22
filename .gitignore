@@ -27,4 +27,9 @@
 *.exe
 *.out
 *.app
-passim
+pas-sim
+
+# Generated files
+commands.pb.cc
+commands.pb.h
+
