@@ -261,6 +261,41 @@ bool DacInfoCommand(string & in, int socket)
 	return rv;
 }
 
+bool SelectCommand(string & in, int socket)
+{
+	bool rv = true;
+	string s;
+
+	SelectResult sr;
+	sr.set_type(SELECT_RESULT);
+	Row * r = sr.add_row();
+	r->set_type(ROW);
+	google::protobuf::Map<string, string> * result = r->mutable_results();
+	(*result)[string("id")] = "100";
+	(*result)[string("fname")] = "fred.flac";
+	(*result)[string("namespace")] = "default";
+	(*result)[string("artist")] = "The Who";
+	(*result)[string("title")] = "The What";
+	(*result)[string("album")] = "Who's on First";
+	(*result)[string("genre")] = "Bad Music";
+	(*result)[string("source")] = "CD";
+	(*result)[string("duration")] = "00:03:00";
+	(*result)[string("publisher")] = "Random Hut";
+	(*result)[string("composer")] = "Mozer le' Poser";
+	(*result)[string("track")] = "6";
+	(*result)[string("copyright")] = "Poserworld";
+	(*result)[string("disc")] = "1";
+	if (!sr.SerializeToString(&s)) {
+		cout << WHERE << "failed to serialize response." << endl;
+		s = internal_error;
+		rv = false;
+	}
+	else {
+		cout << WHERE << "sent a SELECT_QUERY response" << endl;
+	}
+	SendPB(s, socket);
+	return rv;
+}
 bool CommandProcessor(int socket, string & in)
 {
 	bool rv = false;
@@ -292,6 +327,10 @@ bool CommandProcessor(int socket, string & in)
 
 			case DAC_INFO_COMMAND:
 				rv = DacInfoCommand(in, socket);
+				break;
+
+			case SELECT_QUERY:
+				rv = SelectCommand(in, socket);
 				break;
 
 			default:
