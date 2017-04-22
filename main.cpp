@@ -96,8 +96,13 @@ void GetOptions(int argc, char* argv[])
 
 bool SendPB(string & s, int server_socket)
 {
-	size_t length = s.size();
-	size_t ll = length;
+	// NOTE:
+	// NOTE: length must be an unsigned int because size_t can be 64 bits
+	// NOTE: or 32 bits. unsigned int is always 32 bits.
+	// NOTE:
+
+	unsigned int length = (unsigned int) s.size();
+	unsigned int ll = length;
 
 	length = htonl(length);
 	size_t bytes_sent;
@@ -357,12 +362,18 @@ bool CommandProcessor(int socket, string & in)
 
 void HandleConnection(int socket)
 {
-	size_t length;
+	// NOTE:
+	// NOTE: length must be unsigned int rather than size_t as size_t
+	// NOTE: can vary - it can be 32 bits or 64 bits depending upon
+	// NOTE: the machine. unsigned int is always 32 bits.
+	// NOTE:
+
+	unsigned int length;
+	unsigned int ll;
 	size_t bytes_read;
-	size_t ll;
 
 	while (keep_going) {
-		if ((bytes_read = recv(socket, (void*)&length, sizeof(length), 0)) == sizeof(length)) {
+		if ((bytes_read = recv(socket, (void*)&length, sizeof(length), MSG_WAITALL)) == sizeof(length)) {
 			ll = length;
 			length = ntohl(length);
 			cout << WHERE << "Length: " << length << " encoded as: " << hex << ll << dec << endl;
@@ -371,7 +382,7 @@ void HandleConnection(int socket)
 			incoming.resize(length);
 			cout << WHERE << "size of incoming: " << incoming.size() << endl;
 
-			if ((bytes_read = recv(socket, (void*)&incoming[0], length, 0)) == length) {
+			if ((bytes_read = recv(socket, (void*)&incoming[0], length, MSG_WAITALL)) == length) {
 				cout << WHERE << "received message of length: " << bytes_read << endl;
 
 				if (network_diagnostics && bytes_read < 64) {
