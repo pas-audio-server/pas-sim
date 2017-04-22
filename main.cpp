@@ -151,14 +151,13 @@ bool OneInteger_OneIntegerReply(string & in, int socket)
 				else {
 					outs.set_value(TimeCode());
 				}
-				if (outs.SerializeToString(&output)) {
-					if (SendPB(output, socket)) {
-						cout << WHERE << "relating to device: " << o.value() << " sent " << outs.value() << endl;
-						rv = true;
-					}
-				}
-				else {
+				if (!outs.SerializeToString(&output)) {
 					cout << WHERE << "failed to serialize response." << endl;
+					SendPB(internal_error, socket);
+				}
+				else if (SendPB(output, socket)) {
+					cout << WHERE << "relating to device: " << o.value() << " sent " << outs.value() << endl;
+					rv = true;
 				}
 				break;
 
@@ -235,6 +234,33 @@ bool TwoInteger_NoReply(string & in)
 	return rv;
 }
 
+bool DacInfoCommand(string & in, int socket)
+{
+	bool rv = true;
+	string s;
+
+	SelectResult sr;
+	sr.set_type(SELECT_RESULT);
+	Row * r = sr.add_row();
+	r->set_type(ROW);
+	google::protobuf::Map<string, string> * result = r->mutable_results();
+	(*result)[string("index")] = "0";
+	(*result)[string("name")] = "Make Believe DAC";
+	(*result)[string("who")] = "The Who";
+	(*result)[string("what")] = "The What";
+	(*result)[string("when")] = TimeCode();
+	if (!sr.SerializeToString(&s)) {
+		cout << WHERE << "failed to serialize response." << endl;
+		s = internal_error;
+		rv = false;
+	}
+	else {
+		cout << WHERE << "sent a DAC_INFO_COMMAND response" << endl;
+	}
+	SendPB(s, socket);
+	return rv;
+}
+
 bool CommandProcessor(int socket, string & in)
 {
 	bool rv = false;
@@ -262,6 +288,10 @@ bool CommandProcessor(int socket, string & in)
 
 			case PLAY_TRACK_DEVICE:
 				rv = TwoInteger_NoReply(in);
+				break;
+
+			case DAC_INFO_COMMAND:
+				rv = DacInfoCommand(in, socket);
 				break;
 
 			default:
