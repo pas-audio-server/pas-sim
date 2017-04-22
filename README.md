@@ -6,11 +6,11 @@ passim is a single c++ file. It depends upon the proto3's created for pas.
 
 passim can be built by:
 
-    g++ -std=c++11 -o passim main.cpp commands.pb.cc -lprotobuf
+    g++ -std=c++11 -o pas-sim main.cpp commands.pb.cc -lprotobuf
 
 It is invoked by:
 
-    ./passim
+    ./pas-sim
     
 Currently, it opens port 5077. An option to open an arbitrary port will be added shortly.
 
